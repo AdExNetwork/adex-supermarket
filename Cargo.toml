@@ -12,12 +12,13 @@ async-trait = { version = "^0.1" }
 thiserror = "^1.0"
 
 # Server
-tokio = { version = "0.2", features = ["macros", "rt-threaded", "sync", "signal"] }
-hyper-tls = "0.4"
-hyper = { version = "0.13", features = ["stream"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
+tokio-stream = { version = "0.1", features = ["time"] }
+hyper-tls = "0.5"
+hyper = { version = "0.14", features = ["stream"] }
 http = "0.2"
 
-reqwest = { version = "=0.10.10", features = ["json", "cookies"] }
+reqwest = { version = "0.11", features = ["json", "cookies"] }
 
 serde = { version = "^1.0", features = ["derive"] }
 serde_json = "^1.0"
@@ -30,10 +31,11 @@ toml = "0.5"
 # Logging
 slog = { version = "2.7", features = ["release_max_level_info"] }
 slog-term = "2.6"
-slog-async = "2.5"
+slog-async = "2.6"
 # Other
 lazy_static = "1.4"
 url = { version = "2.2", features = ["serde"]}
+dashmap = { version = "4" }
 # UA parsing
 woothee = "^0.11"
 

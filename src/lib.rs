@@ -2,8 +2,7 @@
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
 use hyper::{Body, Method, Request, Response, Server};
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 use thiserror::Error;
 
 use http::{HeaderValue, StatusCode};
@@ -155,12 +154,15 @@ async fn spawn_fetch_campaigns(
     tokio::spawn(async move {
         use futures::stream::{select, StreamExt};
         use tokio::time::{interval, timeout, Instant};
+        use tokio_stream::wrappers::IntervalStream;
         info!(&logger, "Task for updating campaign has been spawned");
 
         // Every X seconds, we will update our active campaigns from the
         // validators (update their latest balance tree).
-        let new_interval = interval(config.fetch_campaigns_every).map(TimeFor::New);
-        let update_interval = interval(config.update_campaigns_every).map(TimeFor::Update);
+        let new_interval =
+            IntervalStream::new(interval(config.fetch_campaigns_every)).map(TimeFor::New);
+        let update_interval =
+            IntervalStream::new(interval(config.update_campaigns_every)).map(TimeFor::Update);
 
         enum TimeFor {
             New(Instant),
