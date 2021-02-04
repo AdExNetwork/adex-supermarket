@@ -14,6 +14,9 @@ pub use proxy::Proxy;
 pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
+pub mod ad_slot;
+pub mod cache;
+
 #[derive(Debug, Clone)]
 pub struct MarketApi {
     pub market_url: MarketUrl,
