@@ -1,21 +1,20 @@
-use crate::market::MarketApi;
 use async_trait::async_trait;
 use primitives::{AdSlot, IPFS};
 
-use super::cache::{Cache, ClientLike};
+use crate::market::MarketApi;
 
-pub type AdSlotCache = Cache<IPFS, AdSlot, AdSlotClient>;
+use super::cache::ClientLike;
 
 #[derive(Debug, Clone)]
 pub struct AdSlotClient {
     market: MarketApi,
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ClientLike<IPFS> for AdSlotClient {
     type Output = Result<Option<AdSlot>, reqwest::Error>;
 
-    async fn get_fresh(&self, key: &IPFS) -> Self::Output {
+    async fn get_fresh<'a>(&self, key: IPFS) -> Self::Output {
         let response = self.market.fetch_slot(&key.to_string()).await?;
 
         Ok(response.map(|response| response.slot))
@@ -26,7 +25,14 @@ impl ClientLike<IPFS> for AdSlotClient {
 mod test {
     use super::*;
 
-    use crate::{config::DEVELOPMENT, market::MarketApi, util::test::discard_logger};
+    use crate::{
+        config::DEVELOPMENT,
+        market::{
+            cache::{Cache, CacheLike},
+            MarketApi,
+        },
+        util::test::discard_logger,
+    };
     use chrono::{TimeZone, Utc};
     use primitives::{
         market::AdSlotResponse,
@@ -86,7 +92,7 @@ mod test {
 
         let expires_duration = std::time::Duration::from_millis(500);
         let ad_slot_client = AdSlotClient { market };
-        let cache =
+        let cache: Cache<IPFS, AdSlot, AdSlotClient> =
             Cache::initialize(expires_duration, ad_slot_client).expect("Should initialize Cache");
 
         // new AdSlot fetched from the Market AND
@@ -94,11 +100,11 @@ mod test {
         let (new_ad_slot, cached_ad_slot) = {
             (
                 cache
-                    .get(&DUMMY_IPFS[0])
+                    .get(DUMMY_IPFS[0].clone())
                     .await
                     .expect("Should fetch from Mocked Market"),
                 cache
-                    .get(&DUMMY_IPFS[0])
+                    .get(DUMMY_IPFS[0].clone())
                     .await
                     .expect("Should fetch from Cache"),
             )
@@ -118,7 +124,7 @@ mod test {
 
         // trigger the Market call again
         let fresh_ad_slot = cache
-            .get(&DUMMY_IPFS[0])
+            .get(DUMMY_IPFS[0].clone())
             .await
             .expect("Should fetch from Mocked Market");
         // check if it's Some only, no need to check the actual value
