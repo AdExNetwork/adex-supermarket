@@ -277,7 +277,7 @@ mod test {
 
         assert_eq!(Some(42), first_fetched);
 
-        tokio::time::sleep(expires_duration).await;
+        tokio::time::sleep(expires_duration + std::time::Duration::from_millis(10)).await;
         cache.clean();
 
         assert!(

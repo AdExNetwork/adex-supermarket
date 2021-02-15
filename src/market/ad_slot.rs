@@ -90,7 +90,7 @@ mod test {
             .mount(&server)
             .await;
 
-        let expires_duration = std::time::Duration::from_millis(500);
+        let expires_duration = std::time::Duration::from_millis(50);
         let ad_slot_client = AdSlotClient { market };
         let cache: Cache<IPFS, AdSlot, AdSlotClient> =
             Cache::initialize(expires_duration, ad_slot_client).expect("Should initialize Cache");
@@ -113,7 +113,7 @@ mod test {
         assert_eq!(Some(&ad_slot), new_ad_slot.as_ref());
         assert_eq!(cached_ad_slot.as_ref(), new_ad_slot.as_ref());
 
-        sleep(expires_duration + std::time::Duration::from_millis(20)).await;
+        sleep(expires_duration + std::time::Duration::from_millis(10)).await;
 
         // clean Expired cache records
         cache.clean();
