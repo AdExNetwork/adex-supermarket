@@ -1,23 +1,23 @@
 use async_trait::async_trait;
-use primitives::{AdSlot, IPFS};
+use primitives::{IPFS, market::AdSlotResponse};
 
 use crate::market::MarketApi;
 
 use super::cache::ClientLike;
 
+pub type AdSlotCache = super::cache::Cache<IPFS, AdSlotResponse, AdSlotClient, Result<Option<AdSlotResponse>, reqwest::Error>>;
+
 #[derive(Debug, Clone)]
 pub struct AdSlotClient {
-    market: MarketApi,
+    pub market: MarketApi,
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ClientLike<IPFS> for AdSlotClient {
-    type Output = Result<Option<AdSlot>, reqwest::Error>;
+    type Output = Result<Option<AdSlotResponse>, reqwest::Error>;
 
     async fn get_fresh<'a>(&self, key: IPFS) -> Self::Output {
-        let response = self.market.fetch_slot(&key.to_string()).await?;
-
-        Ok(response.map(|response| response.slot))
+        self.market.fetch_slot(&key.to_string()).await
     }
 }
 
@@ -92,7 +92,7 @@ mod test {
 
         let expires_duration = std::time::Duration::from_millis(50);
         let ad_slot_client = AdSlotClient { market };
-        let cache: Cache<IPFS, AdSlot, AdSlotClient> =
+        let cache: AdSlotCache =
             Cache::initialize(expires_duration, ad_slot_client).expect("Should initialize Cache");
 
         // new AdSlot fetched from the Market AND
@@ -110,7 +110,7 @@ mod test {
             )
         };
 
-        assert_eq!(Some(&ad_slot), new_ad_slot.as_ref());
+        assert_eq!(Some(&response), new_ad_slot.as_ref());
         assert_eq!(cached_ad_slot.as_ref(), new_ad_slot.as_ref());
 
         sleep(expires_duration + std::time::Duration::from_millis(10)).await;

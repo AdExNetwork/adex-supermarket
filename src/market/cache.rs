@@ -26,8 +26,8 @@ impl<R> Cached<R> {
     }
 }
 
-#[async_trait(?Send)]
-pub trait ClientLike<K> {
+#[async_trait]
+pub trait ClientLike<K: Send> {
     type Output: Send + 'static;
 
     async fn get_fresh<'a>(&self, key: K) -> Self::Output
@@ -35,9 +35,9 @@ pub trait ClientLike<K> {
         K: 'a;
 }
 
-#[async_trait(?Send)]
-pub trait CacheLike<K> {
-    type Output: Send;
+#[async_trait]
+pub trait CacheLike<K: Send> {
+    type Output: Send + 'static;
 
     async fn get<'a>(&self, key: K) -> Self::Output
     where
@@ -46,37 +46,55 @@ pub trait CacheLike<K> {
 
 pub mod implementation {
     use async_trait::async_trait;
-    use chrono::{Duration, Utc};
+    use chrono::Duration;
     use dashmap::{mapref::entry::Entry, DashMap};
     use std::{fmt::Debug, hash::Hash, sync::Arc};
 
     use super::{CacheLike, Cached, ClientLike};
 
-    #[derive(Debug, Clone)]
-    pub struct Cache<K, R, C>
+    #[derive(Debug)]
+    pub struct Cache<K, R, C, O>
     where
         K: Eq + Hash + Clone + Send,
         R: Debug + Clone + Send,
-        C: ClientLike<K>,
+        C: ClientLike<K, Output = O>,
+        O: Send + 'static,
     {
         pub records: Arc<DashMap<K, Cached<R>>>,
         pub expires_duration: Duration,
-        pub client: C,
+        pub client: Arc<C>,
     }
 
-    #[async_trait(?Send)]
-    impl<K, R, C, E> CacheLike<K> for Cache<K, R, C>
+    impl<K, R, C, O> Clone for Cache<K, R, C, O>
     where
         K: Eq + Hash + Clone + Send,
-        R: Debug + Clone + Send + 'static,
-        C: ClientLike<K, Output = Result<Option<R>, E>>,
+        R: Debug + Clone + Send,
+        C: ClientLike<K, Output = O>,
+        O: Send + 'static,
+    {
+        fn clone(&self) -> Self {
+            Self {
+                records: self.records.clone(),
+                expires_duration: self.expires_duration.clone(),
+                client: self.client.clone(),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl<K, R, C, E> CacheLike<K> for Cache<K, R, C, Result<Option<R>, E>>
+    where
+        K: Eq + Hash + Clone + Send + Sync,
+        R: Debug + Clone + Send + Sync + 'static,
+        C: ClientLike<K, Output = Result<Option<R>, E>> + Send + Sync,
         E: Send + 'static,
     {
         type Output = Result<Option<R>, E>;
 
         async fn get<'a>(&self, key: K) -> Self::Output
         where
-            K: 'a,
+            K: 'a + Send,
+            E: 'static + Send,
         {
             // try fetching it from cache
             match self.records.entry(key.clone()) {
@@ -84,10 +102,7 @@ pub mod implementation {
                     if entry.get().is_expired() {
                         match self.client.get_fresh(key).await {
                             Ok(Some(record)) => {
-                                let cached = Cached {
-                                    record: record.clone(),
-                                    expires: Utc::now() + self.expires_duration,
-                                };
+                                let cached = Cached::new(record.clone(), self.expires_duration);
 
                                 entry.replace_entry(cached);
 
@@ -107,10 +122,7 @@ pub mod implementation {
                 }
                 Entry::Vacant(entry) => match self.client.get_fresh(key).await? {
                     Some(record) => {
-                        let cached = Cached {
-                            record: record.clone(),
-                            expires: Utc::now() + self.expires_duration,
-                        };
+                        let cached = Cached::new(record.clone(), self.expires_duration);
 
                         entry.insert(cached);
 
@@ -122,11 +134,62 @@ pub mod implementation {
         }
     }
 
-    impl<K, R, C> Cache<K, R, C>
+    #[async_trait]
+    impl<K, R, C, E> CacheLike<K> for Cache<K, Vec<R>, C, Result<Vec<R>, E>>
+    where
+        K: Eq + Hash + Clone + Send + Sync,
+        R: Debug + Clone + Send + Sync + 'static,
+        C: ClientLike<K, Output = Result<Vec<R>, E>> + Send + Sync,
+        E: Send + 'static,
+    {
+        type Output = Result<Vec<R>, E>;
+
+        async fn get<'a>(&self, key: K) -> Self::Output
+        where
+            K: 'a + Send,
+            E: 'static + Send,
+        {
+            // try fetching it from cache
+            match self.records.entry(key.clone()) {
+                Entry::Occupied(entry) => {
+                    if entry.get().is_expired() {
+                        match self.client.get_fresh(key).await {
+                            Ok(records) => {
+                                let cached = Cached::new(records.clone(), self.expires_duration);
+
+                                entry.replace_entry(cached);
+
+                                Ok(records)
+                            }
+                            Err(err) => {
+                                // remove the expired entry
+                                entry.remove_entry();
+                                // and then return the error
+                                Err(err)
+                            }
+                        }
+                    } else {
+                        Ok(entry.get().record.clone())
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    let record = self.client.get_fresh(key).await?;
+                    let cached = Cached::new(record.clone(), self.expires_duration);
+
+                    entry.insert(cached);
+
+                    Ok(record)
+                }
+            }
+        }
+    }
+
+    impl<K, R, C, O> Cache<K, R, C, O>
     where
         K: Eq + Hash + Clone + Send,
         R: Debug + Clone + Send,
-        C: ClientLike<K>,
+        C: ClientLike<K, Output = O>,
+        O: Send + 'static,
     {
         pub fn initialize(
             expires_duration: std::time::Duration,
@@ -135,7 +198,7 @@ pub mod implementation {
             Ok(Self {
                 records: Default::default(),
                 expires_duration: Duration::from_std(expires_duration)?,
-                client,
+                client: Arc::new(client),
             })
         }
 
@@ -174,13 +237,13 @@ pub mod mock {
         }
     }
 
-    #[async_trait(?Send)]
+    #[async_trait]
     impl<K: AsRef<str> + Send> ClientLike<K> for ClientMock {
         type Output = Result<Option<u8>, String>;
 
         async fn get_fresh<'a>(&self, key: K) -> Self::Output
         where
-            K: 'a + Send,
+            K: 'a,
         {
             let index = self.index.fetch_add(1, Ordering::SeqCst);
             let (resp_key, resp_output) = self
