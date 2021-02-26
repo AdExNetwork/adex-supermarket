@@ -15,7 +15,7 @@ use primitives::{
     util::tests::prep_db::{DUMMY_AD_UNITS, DUMMY_CHANNEL, IDS},
     AdSlot, BigNum, Channel, ChannelId,
 };
-use std::{collections::HashMap, iter::Iterator, str::FromStr, sync::Arc};
+use std::{collections::HashMap, iter::Iterator, str::FromStr};
 use url::Url;
 use wiremock::{
     matchers::{method, path},
@@ -186,16 +186,14 @@ async fn targeting_input() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -244,10 +242,14 @@ async fn targeting_input() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -287,16 +289,14 @@ async fn non_active_campaign() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -342,10 +342,14 @@ async fn non_active_campaign() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -385,16 +389,14 @@ async fn creator_is_publisher() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -442,10 +444,14 @@ async fn creator_is_publisher() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -485,16 +491,14 @@ async fn no_ad_units() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -541,10 +545,14 @@ async fn no_ad_units() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -584,16 +592,14 @@ async fn price_less_than_min_per_impression() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -639,10 +645,14 @@ async fn price_less_than_min_per_impression() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -682,16 +692,14 @@ async fn non_matching_deposit_asset() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -737,10 +745,14 @@ async fn non_matching_deposit_asset() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -782,16 +794,14 @@ async fn multiple_campaigns() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -844,10 +854,14 @@ async fn multiple_campaigns() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 
@@ -888,16 +902,14 @@ async fn get_sample_units_for_slot_output() {
 
     let server = MockServer::start().await;
 
-    let market = Arc::new(
-        MarketApi::new(
-            (server.uri() + "/market/")
-                .parse()
-                .expect("Wrong Market url"),
-            &DEVELOPMENT,
-            logger.clone(),
-        )
-        .expect("should create market instance"),
-    );
+    let market = MarketApi::new(
+        (server.uri() + "/market/")
+            .parse()
+            .expect("Wrong Market url"),
+        &DEVELOPMENT,
+        logger.clone(),
+    )
+    .expect("should create market instance");
 
     let categories: [&str; 3] = ["IAB3", "IAB13-7", "IAB5"];
     let rules = get_mock_rules(&categories);
@@ -944,10 +956,14 @@ async fn get_sample_units_for_slot_output() {
     .body(Body::empty())
     .unwrap();
 
-    let actual_response =
-        get_units_for_slot(&logger, market.clone(), &DEVELOPMENT, &mock_cache, request)
-            .await
-            .expect("call shouldn't fail with provided data");
+    let actual_response = get_units_for_slot(
+        &logger,
+        &DEVELOPMENT,
+        request,
+        crate::util::test::caches(mock_cache.clone(), market.clone()),
+    )
+    .await
+    .expect("call shouldn't fail with provided data");
 
     assert_eq!(http::StatusCode::OK, actual_response.status());
 

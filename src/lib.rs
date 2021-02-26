@@ -2,7 +2,7 @@
 #![deny(rust_2018_idioms)]
 pub use cache::Cache;
 use hyper::{Body, Method, Request, Response, Server};
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 use thiserror::Error;
 
 use http::{HeaderValue, StatusCode};
@@ -16,13 +16,22 @@ pub mod status;
 mod units_for_slot;
 pub mod util;
 
-use market::{MarketApi, MarketUrl, Proxy};
+use market::{MarketApi, MarketUrl, Proxy, ad_slot::AdSlotCache, ad_unit::{AdTypeCache, AdUnitsCache}};
 use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
+
+#[derive(Debug, Clone)]
+pub struct Caches<C: cache::Client> {
+    pub campaigns: Cache<C>,
+    pub ad_units: AdUnitsCache,
+    pub ad_type: AdTypeCache,
+    pub ad_slot: AdSlotCache,
+    pub market: MarketApi,
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -38,6 +47,8 @@ pub enum Error {
     Serde(#[from] serde_json::error::Error),
     #[error(transparent)]
     SentryApi(#[from] sentry_api::Error),
+    #[error("Bad IPFS")]
+    IPFS(#[from] primitives::ipfs::Error)
 }
 
 impl From<http::uri::InvalidUri> for Error {
@@ -57,26 +68,36 @@ pub async fn serve(
 
     let proxy_client = market::Proxy::new(market_url.clone(), &config, logger.clone());
 
-    let market = Arc::new(MarketApi::new(market_url, &config, logger.clone())?);
+    let market = MarketApi::new(market_url, &config, logger.clone())?;
+
+    let expires_duration = std::time::Duration::from_secs(40);
 
     let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
+    // todo: Fix unwraps
+    let ad_units = AdUnitsCache::initialize(expires_duration, market::ad_unit::AdUnitsClient { market: market.clone()}).unwrap();
+
+    let caches = Caches {
+        campaigns: cache,
+        ad_units: ad_units.clone(),
+        ad_type: AdTypeCache::with_units_cache(ad_units, expires_duration).unwrap(),
+        ad_slot: AdSlotCache::initialize(expires_duration, market::ad_slot::AdSlotClient { market: market.clone() }).unwrap(),
+        market: market.clone(),
+    };
 
     // And a MakeService to handle each connection...
     let make_service = make_service_fn(|_| {
         let proxy_client = proxy_client.clone();
-        let cache = cache.clone();
+        let caches = caches.clone();
         let logger = logger.clone();
-        let market = market.clone();
         let config = config.clone();
         async move {
             Ok::<_, Error>(service_fn(move |req| {
                 let proxy_client = proxy_client.clone();
-                let cache = cache.clone();
-                let market = market.clone();
+                let caches = caches.clone();
                 let logger = logger.clone();
                 let config = config.clone();
                 async move {
-                    match handle(req, config, cache, proxy_client, logger.clone(), market).await {
+                    match handle(req, config, proxy_client, logger.clone(), caches.clone()).await {
                         Err(error) => {
                             error!(&logger, "Error ocurred"; "error" => ?error);
                             Err(error)
@@ -104,17 +125,16 @@ pub async fn serve(
 async fn handle<C: cache::Client>(
     req: Request<Body>,
     config: Config,
-    cache: Cache<C>,
     market_proxy: Proxy,
     logger: Logger,
-    market: Arc<MarketApi>,
+    caches: Caches<C>
 ) -> Result<Response<Body>, Error> {
     let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
 
     match (is_units_for_slot, req.method()) {
         (true, &Method::GET) => {
             let mut response =
-                get_units_for_slot(&logger, market.clone(), &config, &cache, req).await?;
+                get_units_for_slot(&logger, &config, req, caches.clone()).await?;
 
             response
                 .headers_mut()

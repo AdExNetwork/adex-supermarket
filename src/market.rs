@@ -1,11 +1,11 @@
 use primitives::{
     market::{AdSlotResponse, AdUnitResponse, AdUnitsResponse, Campaign, StatusType},
     util::ApiUrl,
-    AdSlot, AdUnit,
+    AdUnit,
 };
 use reqwest::{Client, Error, StatusCode};
 use slog::{info, Logger};
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use crate::Config;
 
@@ -15,11 +15,51 @@ pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub mod ad_slot;
+pub mod ad_unit;
 pub mod cache;
+// pub mod cache2;
 
 #[derive(Debug, Clone)]
+/// The `MarketApi` is cheap to clone as it already wraps the real client `MarketApiInner` in an `Arc`
 pub struct MarketApi {
-    pub market_url: MarketUrl,
+    inner: Arc<MarketApiInner>
+}
+
+impl MarketApi {
+    /// The Market url that was is used for communication with the API
+    pub fn url(&self) -> &MarketUrl {
+        &self.inner.market_url
+    }
+
+    // todo: Instead of associate function, use a builder
+    pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Result<Self> {
+        Ok(Self {
+            inner: Arc::new(MarketApiInner::new(market_url, config, logger)?)
+        })
+    }
+
+    /// ipfs: ipfs hash
+    /// Handles the 404 case, returning a None, instead of Error
+    pub async fn fetch_slot(&self, ipfs: &str) -> Result<Option<AdSlotResponse>> {
+        self.inner.fetch_slot(ipfs).await
+    }
+
+    pub async fn fetch_unit(&self, ipfs: &str) -> Result<Option<AdUnitResponse>> {
+        self.inner.fetch_unit(ipfs).await
+    }
+
+    pub async fn fetch_units(&self, ad_type: &str) -> Result<Vec<AdUnit>> {
+        self.inner.fetch_units(ad_type).await
+    }
+
+    pub async fn fetch_campaigns(&self, statuses: &Statuses<'_>) -> Result<Vec<Campaign>> {
+        self.inner.fetch_campaigns(statuses).await
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MarketApiInner {
+    market_url: MarketUrl,
     client: Client,
     logger: Logger,
 }
@@ -46,7 +86,7 @@ impl fmt::Display for Statuses<'_> {
     }
 }
 
-impl MarketApi {
+impl MarketApiInner {
     /// The limit of Campaigns per page when fetching
     /// Limit the value to MAX(500)
     const MARKET_CAMPAIGNS_LIMIT: u64 = 500;
@@ -103,14 +143,14 @@ impl MarketApi {
         }
     }
 
-    pub async fn fetch_units(&self, ad_slot: &AdSlot) -> Result<Vec<AdUnit>> {
+    pub async fn fetch_units(&self, ad_type: &str) -> Result<Vec<AdUnit>> {
         let mut units = Vec::new();
         let mut skip: u64 = 0;
         let limit = Self::MARKET_AD_UNITS_LIMIT;
 
         loop {
             // if one page fail, simply return the error for now
-            let mut page_results = self.fetch_units_page(&ad_slot.ad_type, skip).await?;
+            let mut page_results = self.fetch_units_page(ad_type, skip).await?;
             // get the count before appending the page results to all
             let count = page_results.len() as u64;
 
