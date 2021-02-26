@@ -1472,7 +1472,7 @@ dependencies = [
 [[package]]
 name = "primitives"
 version = "0.1.0"
-source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=dev#0a800cadf007091a21e305c25899c56dbb15ea99"
+source = "git+https://github.com/AdExNetwork/adex-validator-stack-rust?branch=ipfs-slog-value-impl#448af1b10db9aa6289d825e8fa9fec386d5751e4"
 dependencies = [
  "async-trait",
  "chrono",
