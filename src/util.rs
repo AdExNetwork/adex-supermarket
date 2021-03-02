@@ -45,7 +45,6 @@ pub mod test {
         .unwrap();
 
         crate::Caches {
-            // inner: Arc::new(crate::cache::CachesInner {
             campaigns,
             ad_units: ad_units.clone(),
             ad_type: AdTypeCache::with_units_cache(ad_units, expires_duration).unwrap(),
@@ -56,7 +55,6 @@ pub mod test {
                 },
             )
             .unwrap(),
-            // }),
         }
     }
 }
