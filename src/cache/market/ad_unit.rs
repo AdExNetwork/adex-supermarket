@@ -1,19 +1,26 @@
 use async_trait::async_trait;
 use primitives::{AdUnit, IPFS};
 
-use super::{MarketApi, cache::{Cache, Cached, ClientLike}};
+use super::{Cache, Cached, ClientLike};
+use crate::MarketApi;
 
-pub type AdUnitsCache = Cache<IPFS, AdUnit, AdUnitsClient, Result<Option<AdUnit>, reqwest::Error>>;
-pub type AdTypeCache = Cache<String, Vec<AdUnit>, AdTypeClient, Result<Vec<AdUnit>, reqwest::Error>>;
+pub type AdTypeOutput<E> = Result<Vec<AdUnit>, E>;
+pub type AdUnitsOutput<E> = Result<Option<AdUnit>, E>;
+
+pub type AdUnitsCache<C, E> = Cache<IPFS, AdUnit, C, Result<Option<AdUnit>, E>>;
+pub type AdTypeCache<C, E> = Cache<String, Vec<AdUnit>, C, Result<Vec<AdUnit>, E>>;
 
 // TODO: Probably better to do it in with a builder
 impl Cache<String, Vec<AdUnit>, AdTypeClient, Result<Vec<AdUnit>, reqwest::Error>> {
-    pub fn with_units_cache(cache: AdUnitsCache, expires_duration: std::time::Duration) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn with_units_cache(
+        cache: AdUnitsCache<AdUnitsClient, reqwest::Error>,
+        expires_duration: std::time::Duration,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let client = AdTypeClient {
             market: cache.client.market.clone(),
             ad_units_cache: Some(cache),
         };
-        
+
         Self::initialize(expires_duration, client)
     }
 }
@@ -25,7 +32,7 @@ pub struct AdUnitsClient {
 
 #[async_trait]
 impl ClientLike<IPFS> for AdUnitsClient {
-    type Output = Result<Option<AdUnit>, reqwest::Error>;
+    type Output = AdUnitsOutput<reqwest::Error>;
 
     async fn get_fresh<'a>(&self, ipfs: IPFS) -> Self::Output {
         match self.market.fetch_unit(&ipfs.to_string()).await? {
@@ -33,19 +40,19 @@ impl ClientLike<IPFS> for AdUnitsClient {
             None => Ok(None),
         }
     }
- }
+}
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AdTypeClient {
     market: MarketApi,
     /// Having the `AdUnit`s cache here allows us to extend it with the newly fetched records
     /// overriding any previous AdUnits (with new expiration time) and inserting new ones.
-    ad_units_cache: Option<AdUnitsCache>,
+    ad_units_cache: Option<AdUnitsCache<AdUnitsClient, reqwest::Error>>,
 }
 
 #[async_trait]
 impl ClientLike<String> for AdTypeClient {
-    type Output = Result<Vec<AdUnit>, reqwest::Error>;
+    type Output = AdTypeOutput<reqwest::Error>;
 
     /// Adds the fetched by ad_type `AdUnit`s to the `AdUnit`s Cache
     async fn get_fresh<'a>(&self, ad_type: String) -> Self::Output {
@@ -55,7 +62,9 @@ impl ClientLike<String> for AdTypeClient {
             for ad_unit in units.iter() {
                 let cached_record = Cached::new(ad_unit.clone(), units_cache.expires_duration);
 
-                units_cache.records.insert(ad_unit.ipfs.clone(), cached_record);
+                units_cache
+                    .records
+                    .insert(ad_unit.ipfs.clone(), cached_record);
             }
         }
 

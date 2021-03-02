@@ -14,15 +14,10 @@ pub use proxy::Proxy;
 pub type MarketUrl = ApiUrl;
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub mod ad_slot;
-pub mod ad_unit;
-pub mod cache;
-// pub mod cache2;
-
 #[derive(Debug, Clone)]
 /// The `MarketApi` is cheap to clone as it already wraps the real client `MarketApiInner` in an `Arc`
 pub struct MarketApi {
-    inner: Arc<MarketApiInner>
+    inner: Arc<MarketApiInner>,
 }
 
 impl MarketApi {
@@ -34,7 +29,7 @@ impl MarketApi {
     // todo: Instead of associate function, use a builder
     pub fn new(market_url: MarketUrl, config: &Config, logger: Logger) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(MarketApiInner::new(market_url, config, logger)?)
+            inner: Arc::new(MarketApiInner::new(market_url, config, logger)?),
         })
     }
 

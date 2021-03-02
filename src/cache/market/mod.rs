@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 pub use implementation::Cache;
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+
+pub mod ad_slot;
+pub mod ad_unit;
 
 #[derive(Debug)]
 pub struct Cached<T> {
@@ -26,8 +29,55 @@ impl<R> Cached<R> {
     }
 }
 
+#[derive(Debug)]
+pub struct Client<K, C>
+where
+    C: ClientLike<K>,
+    K: Send,
+{
+    inner: Arc<C>,
+    key: PhantomData<K>,
+}
+
+impl<K, C> Client<K, C>
+where
+    C: ClientLike<K>,
+    K: Send,
+{
+    pub fn new(client: C) -> Self {
+        Self {
+            inner: Arc::new(client),
+            key: PhantomData::default(),
+        }
+    }
+}
+
+impl<K, C> std::ops::Deref for Client<K, C>
+where
+    C: ClientLike<K>,
+    K: Send,
+{
+    type Target = C;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.as_ref()
+    }
+}
+
+impl<K, C> Clone for Client<K, C>
+where
+    C: ClientLike<K>,
+    K: Send,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            key: self.key.clone(),
+        }
+    }
+}
 #[async_trait]
-pub trait ClientLike<K: Send> {
+pub trait ClientLike<K: Send>: Send + Sync {
     type Output: Send + 'static;
 
     async fn get_fresh<'a>(&self, key: K) -> Self::Output
@@ -50,10 +100,34 @@ pub mod implementation {
     use dashmap::{mapref::entry::Entry, DashMap};
     use std::{fmt::Debug, hash::Hash, sync::Arc};
 
-    use super::{CacheLike, Cached, ClientLike};
+    use super::{CacheLike, Cached, Client, ClientLike};
+
+    pub struct Cache<K, R, C, O>
+    where
+        K: Eq + Hash + Clone + Send,
+        R: Debug + Clone + Send,
+        C: ClientLike<K, Output = O>,
+        O: Send + 'static,
+    {
+        inner: Arc<CacheInner<K, R, C, O>>,
+    }
+
+    impl<K, R, C, O> std::ops::Deref for Cache<K, R, C, O>
+    where
+        K: Eq + Hash + Clone + Send,
+        R: Debug + Clone + Send,
+        C: ClientLike<K, Output = O>,
+        O: Send + 'static,
+    {
+        type Target = CacheInner<K, R, C, O>;
+
+        fn deref(&self) -> &Self::Target {
+            self.inner.as_ref()
+        }
+    }
 
     #[derive(Debug)]
-    pub struct Cache<K, R, C, O>
+    pub struct CacheInner<K, R, C, O>
     where
         K: Eq + Hash + Clone + Send,
         R: Debug + Clone + Send,
@@ -62,7 +136,7 @@ pub mod implementation {
     {
         pub records: Arc<DashMap<K, Cached<R>>>,
         pub expires_duration: Duration,
-        pub client: Arc<C>,
+        pub client: Client<K, C>,
     }
 
     impl<K, R, C, O> Clone for Cache<K, R, C, O>
@@ -74,14 +148,14 @@ pub mod implementation {
     {
         fn clone(&self) -> Self {
             Self {
-                records: self.records.clone(),
-                expires_duration: self.expires_duration.clone(),
-                client: self.client.clone(),
+                inner: self.inner.clone(),
             }
         }
     }
 
     #[async_trait]
+    /// Implementation of `CacheLike` for handling a cache that a single Record per key
+    /// The ClientLike impl should return a Result with an Option of a Record
     impl<K, R, C, E> CacheLike<K> for Cache<K, R, C, Result<Option<R>, E>>
     where
         K: Eq + Hash + Clone + Send + Sync,
@@ -97,12 +171,13 @@ pub mod implementation {
             E: 'static + Send,
         {
             // try fetching it from cache
-            match self.records.entry(key.clone()) {
+            match self.inner.records.entry(key.clone()) {
                 Entry::Occupied(entry) => {
                     if entry.get().is_expired() {
-                        match self.client.get_fresh(key).await {
+                        match self.inner.client.get_fresh(key).await {
                             Ok(Some(record)) => {
-                                let cached = Cached::new(record.clone(), self.expires_duration);
+                                let cached =
+                                    Cached::new(record.clone(), self.inner.expires_duration);
 
                                 entry.replace_entry(cached);
 
@@ -120,9 +195,9 @@ pub mod implementation {
                         Ok(Some(entry.get().record.clone()))
                     }
                 }
-                Entry::Vacant(entry) => match self.client.get_fresh(key).await? {
+                Entry::Vacant(entry) => match self.inner.client.get_fresh(key).await? {
                     Some(record) => {
-                        let cached = Cached::new(record.clone(), self.expires_duration);
+                        let cached = Cached::new(record.clone(), self.inner.expires_duration);
 
                         entry.insert(cached);
 
@@ -135,6 +210,8 @@ pub mod implementation {
     }
 
     #[async_trait]
+    /// Implementation of `CacheLike` for handling a cache that stores a Vec of Records
+    /// The ClientLike impl should return a Result of Vec with Records too
     impl<K, R, C, E> CacheLike<K> for Cache<K, Vec<R>, C, Result<Vec<R>, E>>
     where
         K: Eq + Hash + Clone + Send + Sync,
@@ -150,12 +227,13 @@ pub mod implementation {
             E: 'static + Send,
         {
             // try fetching it from cache
-            match self.records.entry(key.clone()) {
+            match self.inner.records.entry(key.clone()) {
                 Entry::Occupied(entry) => {
                     if entry.get().is_expired() {
-                        match self.client.get_fresh(key).await {
+                        match self.inner.client.get_fresh(key).await {
                             Ok(records) => {
-                                let cached = Cached::new(records.clone(), self.expires_duration);
+                                let cached =
+                                    Cached::new(records.clone(), self.inner.expires_duration);
 
                                 entry.replace_entry(cached);
 
@@ -173,8 +251,8 @@ pub mod implementation {
                     }
                 }
                 Entry::Vacant(entry) => {
-                    let record = self.client.get_fresh(key).await?;
-                    let cached = Cached::new(record.clone(), self.expires_duration);
+                    let record = self.inner.client.get_fresh(key).await?;
+                    let cached = Cached::new(record.clone(), self.inner.expires_duration);
 
                     entry.insert(cached);
 
@@ -191,20 +269,23 @@ pub mod implementation {
         C: ClientLike<K, Output = O>,
         O: Send + 'static,
     {
+        // TODO: once `chrono` exports the `OutOfRangeError` used by `Duration::from_std`, we can remove the `dyn Error`
         pub fn initialize(
             expires_duration: std::time::Duration,
             client: C,
         ) -> Result<Self, Box<dyn std::error::Error>> {
             Ok(Self {
-                records: Default::default(),
-                expires_duration: Duration::from_std(expires_duration)?,
-                client: Arc::new(client),
+                inner: Arc::new(CacheInner {
+                    records: Default::default(),
+                    expires_duration: Duration::from_std(expires_duration)?,
+                    client: Client::new(client),
+                }),
             })
         }
 
         /// Cleans expired cache items
         pub fn clean(&self) {
-            self.records.retain(|_key, record| record.is_valid())
+            self.inner.records.retain(|_key, record| record.is_valid())
         }
     }
 }

@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 #![deny(rust_2018_idioms)]
-pub use cache::Cache;
+pub use cache::{campaign::Cache, Caches};
 use hyper::{Body, Method, Request, Response, Server};
 use std::net::SocketAddr;
 use thiserror::Error;
@@ -16,22 +16,20 @@ pub mod status;
 mod units_for_slot;
 pub mod util;
 
-use market::{MarketApi, MarketUrl, Proxy, ad_slot::AdSlotCache, ad_unit::{AdTypeCache, AdUnitsCache}};
+use cache::{
+    market::{
+        ad_slot::AdSlotCache,
+        ad_unit::{AdTypeCache, AdUnitsCache},
+    },
+    ApiCaches,
+};
+use market::{MarketApi, MarketUrl, Proxy};
 use units_for_slot::get_units_for_slot;
 
 pub use config::{Config, Timeouts};
 pub use sentry_api::SentryApi;
 
 pub(crate) static ROUTE_UNITS_FOR_SLOT: &str = "/units-for-slot/";
-
-#[derive(Debug, Clone)]
-pub struct Caches<C: cache::Client> {
-    pub campaigns: Cache<C>,
-    pub ad_units: AdUnitsCache,
-    pub ad_type: AdTypeCache,
-    pub ad_slot: AdSlotCache,
-    pub market: MarketApi,
-}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -48,7 +46,7 @@ pub enum Error {
     #[error(transparent)]
     SentryApi(#[from] sentry_api::Error),
     #[error("Bad IPFS")]
-    IPFS(#[from] primitives::ipfs::Error)
+    IPFS(#[from] primitives::ipfs::Error),
 }
 
 impl From<http::uri::InvalidUri> for Error {
@@ -74,14 +72,25 @@ pub async fn serve(
 
     let cache = spawn_fetch_campaigns(logger.clone(), config.clone()).await?;
     // todo: Fix unwraps
-    let ad_units = AdUnitsCache::initialize(expires_duration, market::ad_unit::AdUnitsClient { market: market.clone()}).unwrap();
+    let ad_units = AdUnitsCache::initialize(
+        expires_duration,
+        cache::market::ad_unit::AdUnitsClient {
+            market: market.clone(),
+        },
+    )
+    .unwrap();
 
     let caches = Caches {
         campaigns: cache,
         ad_units: ad_units.clone(),
         ad_type: AdTypeCache::with_units_cache(ad_units, expires_duration).unwrap(),
-        ad_slot: AdSlotCache::initialize(expires_duration, market::ad_slot::AdSlotClient { market: market.clone() }).unwrap(),
-        market: market.clone(),
+        ad_slot: AdSlotCache::initialize(
+            expires_duration,
+            cache::market::ad_slot::AdSlotClient {
+                market: market.clone(),
+            },
+        )
+        .unwrap(),
     };
 
     // And a MakeService to handle each connection...
@@ -122,19 +131,18 @@ pub async fn serve(
     Ok(())
 }
 
-async fn handle<C: cache::Client>(
+async fn handle(
     req: Request<Body>,
     config: Config,
     market_proxy: Proxy,
     logger: Logger,
-    caches: Caches<C>
+    caches: ApiCaches,
 ) -> Result<Response<Body>, Error> {
     let is_units_for_slot = req.uri().path().starts_with(ROUTE_UNITS_FOR_SLOT);
 
     match (is_units_for_slot, req.method()) {
         (true, &Method::GET) => {
-            let mut response =
-                get_units_for_slot(&logger, &config, req, caches.clone()).await?;
+            let mut response = get_units_for_slot(&logger, &config, req, caches.clone()).await?;
 
             response
                 .headers_mut()
@@ -164,8 +172,8 @@ async fn shutdown_signal(logger: Logger) {
 async fn spawn_fetch_campaigns(
     logger: Logger,
     config: Config,
-) -> Result<Cache<cache::ApiClient>, Error> {
-    let api_client = cache::ApiClient::init(logger.clone(), config.clone()).await?;
+) -> Result<Cache<cache::campaign::ApiClient>, Error> {
+    let api_client = cache::campaign::ApiClient::init(logger.clone(), config.clone()).await?;
     let cache = Cache::initialize(api_client).await;
 
     let cache_spawn = cache.clone();

@@ -1,8 +1,27 @@
-use crate::{Config, Error, ROUTE_UNITS_FOR_SLOT, cache::{Cache, Campaign, Client}, market::cache::CacheLike, not_found, service_unavailable, status::Status};
+use crate::{
+    cache::{
+        campaign::{Cache, Campaign, Client},
+        market::{
+            ad_slot::AdSlotOutput,
+            ad_unit::{AdTypeOutput, AdUnitsOutput},
+            CacheLike, ClientLike,
+        },
+        Caches,
+    },
+    not_found, service_unavailable,
+    status::Status,
+    Config, Error, ROUTE_UNITS_FOR_SLOT,
+};
 use chrono::Utc;
 use http::header::{HeaderName, CONTENT_TYPE};
 use hyper::{header::USER_AGENT, Body, Request, Response};
-use primitives::{AdUnit, IPFS, ValidatorId, market::AdSlotResponse, supermarket::units_for_slot::response, supermarket::units_for_slot::response::Response as UnitsForSlotResponse, targeting::{eval_with_callback, get_pricing_bounds, input, input::Input, Output}};
+use primitives::{
+    market::AdSlotResponse,
+    supermarket::units_for_slot::response,
+    supermarket::units_for_slot::response::Response as UnitsForSlotResponse,
+    targeting::{eval_with_callback, get_pricing_bounds, input, input::Input, Output},
+    AdUnit, ValidatorId, IPFS,
+};
 use slog::{debug, error, warn, Logger};
 use url::{form_urlencoded, Url};
 use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
@@ -15,12 +34,19 @@ lazy_static::lazy_static! {
 #[path = "units_for_slot_test.rs"]
 pub mod test;
 
-pub async fn get_units_for_slot<C: Client>(
+pub async fn get_units_for_slot<C, AU, AT, AS, E>(
     logger: &Logger,
     config: &Config,
     req: Request<Body>,
-    caches: crate::Caches<C>,
-) -> Result<Response<Body>, Error> {
+    caches: Caches<C, AU, AT, AS, E>,
+) -> Result<Response<Body>, Error>
+where
+    C: Client,
+    AU: ClientLike<IPFS, Output = AdUnitsOutput<E>>,
+    AT: ClientLike<String, Output = AdTypeOutput<E>>,
+    AS: ClientLike<IPFS, Output = AdSlotOutput<E>>,
+    E: Into<Error> + Send + 'static,
+{
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
     if ipfs.is_empty() {
         Ok(not_found())
@@ -42,16 +68,20 @@ pub async fn get_units_for_slot<C: Client>(
                 return Ok(not_found());
             }
             Err(err) => {
-                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => ?err);
+                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => ?err.into());
 
                 return Ok(service_unavailable());
             }
         };
 
-        let units = match caches.ad_type.get(ad_slot_response.slot.ad_type.clone()).await {
+        let units = match caches
+            .ad_type
+            .get(ad_slot_response.slot.ad_type.clone())
+            .await
+        {
             Ok(units) => units,
             Err(error) => {
-                error!(&logger, "Error fetching AdUnits for AdSlot"; "AdSlot" => ipfs, "error" => ?error);
+                error!(&logger, "Error fetching AdUnits for AdSlot"; "AdSlot" => ipfs, "error" => ?error.into());
 
                 return Ok(service_unavailable());
             }
@@ -83,7 +113,7 @@ pub async fn get_units_for_slot<C: Client>(
                             unit_ipfs;
                             "AdSlot" => ipfs,
                             "Fallback AdUnit" => unit_ipfs,
-                            "error" => ?error
+                            "error" => ?error.into()
                         );
 
                         return Ok(service_unavailable());

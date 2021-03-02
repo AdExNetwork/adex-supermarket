@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    cache::mock_client::MockClient, config::DEVELOPMENT, util::test::discard_logger, MarketApi,
+    cache::campaign::mock_client::MockClient, config::DEVELOPMENT, util::test::discard_logger,
+    MarketApi,
 };
 use chrono::{DateTime, TimeZone, Utc};
 use http::{header::USER_AGENT, request::Request};

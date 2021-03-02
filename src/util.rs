@@ -4,13 +4,15 @@ pub mod test {
     use slog_async::Async;
 
     use crate::{
-        cache::Client,
-        market::{
-            ad_slot::AdSlotCache,
-            ad_unit::{AdTypeCache, AdUnitsCache},
-            MarketApi,
+        cache::{
+            campaign::Client,
+            market::{
+                ad_slot::{AdSlotCache, AdSlotClient},
+                ad_unit::{AdTypeCache, AdTypeClient, AdUnitsCache, AdUnitsClient},
+            },
         },
-        Cache,
+        market::MarketApi,
+        Cache, Caches,
     };
 
     pub fn logger() -> Logger {
@@ -28,29 +30,33 @@ pub mod test {
         Logger::root(drain, o!())
     }
 
-    pub fn caches<C: Client>(campaigns: Cache<C>, market: MarketApi) -> crate::Caches<C> {
+    pub fn caches<C: Client>(
+        campaigns: Cache<C>,
+        market: MarketApi,
+    ) -> Caches<C, AdUnitsClient, AdTypeClient, AdSlotClient, reqwest::Error> {
         let expires_duration = std::time::Duration::from_secs(40);
 
         let ad_units = AdUnitsCache::initialize(
             expires_duration,
-            crate::market::ad_unit::AdUnitsClient {
+            AdUnitsClient {
                 market: market.clone(),
             },
         )
         .unwrap();
 
         crate::Caches {
+            // inner: Arc::new(crate::cache::CachesInner {
             campaigns,
             ad_units: ad_units.clone(),
             ad_type: AdTypeCache::with_units_cache(ad_units, expires_duration).unwrap(),
             ad_slot: AdSlotCache::initialize(
                 expires_duration,
-                crate::market::ad_slot::AdSlotClient {
+                AdSlotClient {
                     market: market.clone(),
                 },
             )
             .unwrap(),
-            market,
+            // }),
         }
     }
 }

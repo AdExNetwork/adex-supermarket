@@ -1,11 +1,12 @@
 use async_trait::async_trait;
-use primitives::{IPFS, market::AdSlotResponse};
+use primitives::{market::AdSlotResponse, IPFS};
 
 use crate::market::MarketApi;
 
-use super::cache::ClientLike;
+use super::ClientLike;
 
-pub type AdSlotCache = super::cache::Cache<IPFS, AdSlotResponse, AdSlotClient, Result<Option<AdSlotResponse>, reqwest::Error>>;
+pub type AdSlotOutput<E> = Result<Option<AdSlotResponse>, E>;
+pub type AdSlotCache<C, E> = super::Cache<IPFS, AdSlotResponse, C, AdSlotOutput<E>>;
 
 #[derive(Debug, Clone)]
 pub struct AdSlotClient {
@@ -26,11 +27,9 @@ mod test {
     use super::*;
 
     use crate::{
+        cache::market::{Cache, CacheLike},
         config::DEVELOPMENT,
-        market::{
-            cache::{Cache, CacheLike},
-            MarketApi,
-        },
+        market::MarketApi,
         util::test::discard_logger,
     };
     use chrono::{TimeZone, Utc};
@@ -92,7 +91,7 @@ mod test {
 
         let expires_duration = std::time::Duration::from_millis(50);
         let ad_slot_client = AdSlotClient { market };
-        let cache: AdSlotCache =
+        let cache: AdSlotCache<AdSlotClient, reqwest::Error> =
             Cache::initialize(expires_duration, ad_slot_client).expect("Should initialize Cache");
 
         // new AdSlot fetched from the Market AND
