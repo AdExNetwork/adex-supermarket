@@ -46,7 +46,6 @@ pub enum Error {
     #[error(transparent)]
     SentryApi(#[from] sentry_api::Error),
     #[error("Bad IPFS")]
-    #[allow(clippy::upper_case_acronyms)]
     IPFS(#[from] primitives::ipfs::Error),
 }
 
