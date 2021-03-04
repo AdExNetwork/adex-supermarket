@@ -17,7 +17,7 @@ thiserror = "^1.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["time"] }
 hyper-tls = "0.5"
-hyper = { version = "0.14", features = ["client", "stream", "http2", "runtime"] }
+hyper = { version = "0.14", features = ["server", "client", "stream", "http2", "runtime"] }
 http = "0.2"
 
 reqwest = { version = "0.11", features = ["json", "cookies"] }
