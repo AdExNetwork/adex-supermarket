@@ -1,5 +1,5 @@
 use crate::{
-    cache::{ActiveCache, Client, FinalizedCache},
+    cache::campaign::{ActiveCache, Client, FinalizedCache},
     util::test::discard_logger,
 };
 use async_trait::async_trait;

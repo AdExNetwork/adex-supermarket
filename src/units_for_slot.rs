@@ -1,8 +1,16 @@
 use crate::{
-    cache::{Cache, Campaign, Client},
+    cache::{
+        campaign::{Cache, Campaign, Client},
+        market::{
+            ad_slot::AdSlotOutput,
+            ad_unit::{AdTypeOutput, AdUnitsOutput},
+            CacheLike, ClientLike,
+        },
+        Caches,
+    },
     not_found, service_unavailable,
     status::Status,
-    Config, Error, MarketApi, ROUTE_UNITS_FOR_SLOT,
+    Config, Error, ROUTE_UNITS_FOR_SLOT,
 };
 use chrono::Utc;
 use http::header::{HeaderName, CONTENT_TYPE};
@@ -12,10 +20,9 @@ use primitives::{
     supermarket::units_for_slot::response,
     supermarket::units_for_slot::response::Response as UnitsForSlotResponse,
     targeting::{eval_with_callback, get_pricing_bounds, input, input::Input, Output},
-    AdUnit, ValidatorId,
+    AdUnit, ValidatorId, IPFS,
 };
 use slog::{debug, error, warn, Logger};
-use std::sync::Arc;
 use url::{form_urlencoded, Url};
 use woothee::{parser::Parser, woothee::VALUE_UNKNOWN};
 
@@ -27,18 +34,26 @@ lazy_static::lazy_static! {
 #[path = "units_for_slot_test.rs"]
 pub mod test;
 
-pub async fn get_units_for_slot<C: Client>(
+pub async fn get_units_for_slot<C, AU, AT, AS, E>(
     logger: &Logger,
-    market: Arc<MarketApi>,
     config: &Config,
-    cache: &Cache<C>,
     req: Request<Body>,
-) -> Result<Response<Body>, Error> {
+    caches: Caches<C, AU, AT, AS, E>,
+) -> Result<Response<Body>, Error>
+where
+    C: Client,
+    AU: ClientLike<IPFS, Output = AdUnitsOutput<E>>,
+    AT: ClientLike<String, Output = AdTypeOutput<E>>,
+    AS: ClientLike<IPFS, Output = AdSlotOutput<E>>,
+    E: Into<Error> + Send + 'static,
+{
     let ipfs = req.uri().path().trim_start_matches(ROUTE_UNITS_FOR_SLOT);
     if ipfs.is_empty() {
         Ok(not_found())
     } else {
-        let ad_slot_response = match market.fetch_slot(&ipfs).await {
+        // todo: fix unwrap!
+        let ipfs_r = ipfs.parse::<IPFS>()?;
+        let ad_slot_response = match caches.ad_slot.get(ipfs_r).await {
             Ok(Some(response)) => {
                 debug!(&logger, "Fetched AdSlot"; "AdSlot" => ipfs);
                 response
@@ -53,35 +68,40 @@ pub async fn get_units_for_slot<C: Client>(
                 return Ok(not_found());
             }
             Err(err) => {
-                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => ?err);
+                error!(&logger, "Error fetching AdSlot"; "AdSlot" => ipfs, "error" => ?err.into());
 
                 return Ok(service_unavailable());
             }
         };
 
-        let units = match market.fetch_units(&ad_slot_response.slot).await {
+        let units = match caches
+            .ad_type
+            .get(ad_slot_response.slot.ad_type.clone())
+            .await
+        {
             Ok(units) => units,
             Err(error) => {
-                error!(&logger, "Error fetching AdUnits for AdSlot"; "AdSlot" => ipfs, "error" => ?error);
+                error!(&logger, "Error fetching AdUnits for AdSlot"; "AdSlot" => ipfs, "error" => ?error.into());
 
                 return Ok(service_unavailable());
             }
         };
 
         let accepted_referrers = ad_slot_response.accepted_referrers.clone();
-        let fallback_unit: Option<AdUnit> = match ad_slot_response.slot.fallback_unit.as_ref() {
+        let fallback_unit: Option<AdUnit> = match &ad_slot_response.slot.fallback_unit {
             Some(unit_ipfs) => {
-                let ad_unit_response = match market.fetch_unit(&unit_ipfs).await {
+                let ipfs = unit_ipfs.parse::<IPFS>()?;
+                let ad_unit = match caches.ad_units.get(ipfs.clone()).await {
                     Ok(Some(response)) => {
-                        debug!(&logger, "Fetched AdUnit"; "AdUnit" => unit_ipfs);
+                        debug!(&logger, "Fetched AdUnit"; "AdUnit" => &ipfs);
                         response
                     }
                     Ok(None) => {
                         warn!(
                             &logger,
                             "AdSlot fallback AdUnit ({}) not found in Market",
-                            unit_ipfs;
-                            "AdUnit" => unit_ipfs,
+                            &ipfs;
+                            "AdUnit" => &ipfs,
                             "AdSlot" => ad_slot_response.slot.ipfs,
                         );
 
@@ -93,14 +113,14 @@ pub async fn get_units_for_slot<C: Client>(
                             unit_ipfs;
                             "AdSlot" => ipfs,
                             "Fallback AdUnit" => unit_ipfs,
-                            "error" => ?error
+                            "error" => ?error.into()
                         );
 
                         return Ok(service_unavailable());
                     }
                 };
 
-                Some(ad_unit_response.unit)
+                Some(ad_unit)
             }
             None => None,
         };
@@ -165,7 +185,7 @@ pub async fn get_units_for_slot<C: Client>(
         let publisher_id = ad_slot_response.slot.owner;
 
         let campaigns_limited_by_earner =
-            get_campaigns(cache, config, &deposit_assets, publisher_id).await;
+            get_campaigns(&caches.campaigns, config, &deposit_assets, publisher_id).await;
 
         debug!(&logger, "Fetched Cache campaigns limited by earner (publisher)"; "campaigns" => campaigns_limited_by_earner.len(), "publisher_id" => %publisher_id);
 
