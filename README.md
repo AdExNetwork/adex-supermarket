@@ -70,9 +70,9 @@ cargo test --all-features
 
 2. Run `cargo test get_sample_units_for_slot_output -- --show-output --ignored`
 
-## Supported Rust Versions `1.48.0`
+## Supported Rust Versions `stable`
 
-The supported Rust version is `1.48.0`, which can be found in the [`rust-toolchain`](./rust-toolchain) file.
+The supported Rust version is `stable`, which can be found in the [`rust-toolchain`](./rust-toolchain) file.
 
 ## License
 

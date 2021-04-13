@@ -1,5 +1,5 @@
 # Builder
-FROM rust:1.48.0 as builder
+FROM rust:latest as builder
 
 LABEL maintainer="dev@adex.network"
 
@@ -9,7 +9,7 @@ COPY . .
 
 # We intall the binary with all features in Release mode
 # Inlcude the full backtrace for easier debugging
-RUN RUST_BACKTRACE=full cargo install --path . --all-features
+RUN RUST_BACKTRACE=full cargo install --locked --path . --all-features
 
 WORKDIR /usr/local/bin
 
